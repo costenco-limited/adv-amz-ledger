@@ -1,6 +1,7 @@
 name: Update ledger data
 
-# Refreshes data.js from Amazon and Keepa, commits it, and republishes the GitHub Pages site.
+# Refreshes data.js from Amazon and Keepa and commits it.
+# The commit triggers GitHub's own Pages build, which republishes the site.
 on:
   schedule:
     - cron: '17 */6 * * *'   # every 6 hours (UTC)
@@ -8,7 +9,6 @@ on:
 
 permissions:
   contents: write   # commit data.js
-  pages: write      # request a Pages rebuild
 
 concurrency:
   group: update-ledger
@@ -19,11 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci --omit=dev
@@ -37,24 +37,14 @@ jobs:
           KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
 
       - name: Commit updated data
-        id: commit
         run: |
           git config user.name "ledger-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data.js data/state.json
           if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No changes"
           else
             git commit -m "Update ledger data"
             git pull --rebase
             git push
-            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-
-      # Pushes made by this workflow don't trigger the Pages build on their own
-      - name: Republish GitHub Pages
-        if: steps.commit.outputs.changed == 'true'
-        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "Pages rebuild request failed; the site updates on the next push"
-        env:
-          GH_TOKEN: ${{ github.token }}
