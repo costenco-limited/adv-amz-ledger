@@ -10,3 +10,6 @@ amazon-data.json
 node_modules/
 __pycache__/
 *.log
+
+# Local scratch work
+.tmp/

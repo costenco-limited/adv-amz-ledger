@@ -1,0 +1,60 @@
+name: Update ledger data
+
+# Refreshes data.js from Amazon and Keepa, commits it, and republishes the GitHub Pages site.
+on:
+  schedule:
+    - cron: '17 */6 * * *'   # every 6 hours (UTC)
+  workflow_dispatch:          # "Run workflow" button on the Actions tab
+
+permissions:
+  contents: write   # commit data.js
+  pages: write      # request a Pages rebuild
+
+concurrency:
+  group: update-ledger
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Fetch data from Amazon and Keepa
+        run: node scripts/update-ledger.js
+        env:
+          AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
+          AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+          AMAZON_REFRESH_TOKEN: ${{ secrets.AMAZON_REFRESH_TOKEN }}
+          KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
+
+      - name: Commit updated data
+        id: commit
+        run: |
+          git config user.name "ledger-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data.js data/state.json
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes"
+          else
+            git commit -m "Update ledger data"
+            git pull --rebase
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Pushes made by this workflow don't trigger the Pages build on their own
+      - name: Republish GitHub Pages
+        if: steps.commit.outputs.changed == 'true'
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "Pages rebuild request failed; the site updates on the next push"
+        env:
+          GH_TOKEN: ${{ github.token }}
